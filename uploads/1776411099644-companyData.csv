@@ -1,0 +1,4 @@
+company_name,business_type,number_of_branches,is_active
+company1,Logistics,2,1
+company2,Transportation,1,1
+company3,Delivery Services,0,1
