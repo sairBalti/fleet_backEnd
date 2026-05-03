@@ -78,7 +78,7 @@ export const parseCompanyCommand = async (message) => {
           .join(" ")
       : "";
 
-  return {
+  const parsed = {
     action,
     data: {
       company_name: capitalize(company_name),
@@ -88,8 +88,31 @@ export const parseCompanyCommand = async (message) => {
           business_type: capitalize(updates.business_type)
         })
       }
-    }
+    },
+    confidence: 0.9,
+    needsClarification: false,
+    clarificationQuestion: ""
   };
+
+  if (!parsed.data.company_name) {
+    parsed.needsClarification = true;
+    parsed.confidence = 0.4;
+    parsed.clarificationQuestion = "Please provide the company name.";
+  }
+
+  if (action === "CREATE_COMPANY" && !parsed.data.business_type) {
+    parsed.needsClarification = true;
+    parsed.confidence = 0.45;
+    parsed.clarificationQuestion = "Please provide business type for the new company.";
+  }
+
+  if (action === "UPDATE_COMPANY" && !parsed.data.updates?.business_type) {
+    parsed.needsClarification = true;
+    parsed.confidence = 0.45;
+    parsed.clarificationQuestion = "Please provide the new business type to update.";
+  }
+
+  return parsed;
 };
 
 export default parseCompanyCommand;

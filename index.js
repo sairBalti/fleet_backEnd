@@ -9,6 +9,11 @@ import userRoute from "./routes/userRoutes.js"
 import protectedRoutes from "./routes/protectedRoutes.js";
 import businessRoutes from "./routes/businessRoutes.js"
 import lookupRoutes from "./routes/lookupRoutes.js"
+import demoRequestRoutes from "./routes/demoRequestRoutes.js";
+import portalRoutes from "./routes/portalRoutes.js";
+import reportsRoutes from "./routes/reportsRoutes.js";
+import driverRoutes from "./routes/driverRoutes.js";
+import maintenanceRoutes from "./routes/maintenanceRoutes.js";
 import { errorHandler } from "./middleware/errorHandler.js.js";
 
 import dotenv from "dotenv";
@@ -24,6 +29,11 @@ app.use("/api/auth", authRoutes);
 app.use("/api/admin", userRoute);
 app.use("/protected", protectedRoutes);
 app.use("/api/lookup", lookupRoutes)
+app.use("/api/demo-requests", demoRequestRoutes);
+app.use("/api/portal", portalRoutes);
+app.use("/api/reports", reportsRoutes);
+app.use("/api/drivers", driverRoutes);
+app.use("/api/maintenance", maintenanceRoutes);
 
 app.use(errorHandler);
 

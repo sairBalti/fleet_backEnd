@@ -1,43 +1,43 @@
-import express from "express";
-const router = express.Router();
 import db from "../config/db.js";
 
-// helper function to pass date 
-const formatToMySQLDateTime = (input) => {
-  const date = new Date(input);
-
-  const pad = (n) => String(n).padStart(2, '0');
-  const year = date.getFullYear();
-  const month = pad(date.getMonth() + 1);
-  const day = pad(date.getDate());
-  const hours = pad(date.getHours());
-  const minutes = pad(date.getMinutes());
-  const seconds = pad(date.getSeconds());
-
-  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+const resolveAccessScope = async (userId) => {
+  const [rows] = await db.execute(
+    `SELECT u.company_id, u.branch_id, lr.role_name
+     FROM users u
+     INNER JOIN lookup_roles lr ON lr.role_id = u.role_id
+     WHERE u.id = ? LIMIT 1`,
+    [userId]
+  );
+  return rows[0] || null;
 };
 
-// 
-export const getVehicles = async (req, res) => {
-  try {
-    const companyId = req.user.company_id;
-    const [rows] = await db.execute('CALL GetAllVehicles(?)', [companyId])
-
-    res.json({ success: true, data: rows[0] });
-  } catch (error) {
-    console.error('GetAllVehicles error:', error);
-    res.status(500).json({ success: false, message: 'Failed to retrieve vehicles', details: error.message });
-  }
+const resolveFuelTypeId = async (fuelTypeId, fuelTypeName) => {
+  if (fuelTypeId) return Number(fuelTypeId);
+  if (!fuelTypeName) return null;
+  const [rows] = await db.execute(
+    "SELECT fuel_type_id FROM lookup_fueltypes WHERE LOWER(fuel_type_name) = LOWER(?) LIMIT 1",
+    [fuelTypeName]
+  );
+  return rows[0]?.fuel_type_id || null;
 };
-//
+
+const resolveStatusId = async (statusId, statusName) => {
+  if (statusId) return Number(statusId);
+  if (!statusName) return null;
+  const [rows] = await db.execute(
+    "SELECT status_id FROM lookup_vehiclestatus WHERE LOWER(status_name) = LOWER(?) LIMIT 1",
+    [statusName]
+  );
+  return rows[0]?.status_id || null;
+};
 
 // get vehicle by id
 export const getVehicleById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const [rows] = await db.query('CALL portal_spVehicleGetById(?)', [id]);
-    res.json({ success: true, data: rows[0][0] || null }); // Assuming the first row is the result
+    const [rows] = await db.execute("CALL portal_spVehicleGetById(?)", [id]);
+    res.json({ success: true, data: rows[0]?.[0] || null });
   } catch (error) {
     console.error('Error fetching vehicle by ID:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch vehicle.' });
@@ -45,35 +45,51 @@ export const getVehicleById = async (req, res) => {
 };
 
 export const createVehicle = async (req, res) => {
-  let {
+  try {
+    const user = await resolveAccessScope(req.user.user_id);
+
+    let {
+      company_id,
+      branch_id,
     registration,
     manufacturer,
     model,
     date_registered,
     maintenance_interval_months,
     fuel_type_id,
+    fuel_type,
     status_id,
-  } = req.body;
+      status,
+    } = req.body;
 
-  console.log("Received date_registered:", date_registered);
-  const companyId = req.user.company_id;
-  const userId = req.user.user_id;
-  const formattedDate = date_registered
-    ? formatToMySQLDateTime(date_registered)
-    : null;
-  try {
-    // Insert into database using the formatted date
-    await db.execute('CALL portal_spVehicleInsert(?, ?, ?, ?, ?, ?, ?, ?)', [
-      companyId,
-      registration,
-      manufacturer,
-      model,
-      formattedDate,
-      maintenance_interval_months,
-      fuel_type_id,
-      status_id,
-      userId,
-    ]);
+    if (user.role_name === "SuperAdmin" || user.role_name === "Admin") {
+      if (!company_id || !branch_id) {
+        return res.status(400).json({ success: false, message: "company_id and branch_id are required" });
+      }
+    } else {
+      company_id = user.company_id;
+      if (user.role_name === "BranchManager" || user.role_name === "Driver") {
+        branch_id = user.branch_id;
+      }
+    }
+
+    const resolvedFuelTypeId = await resolveFuelTypeId(fuel_type_id, fuel_type);
+    const resolvedStatusId = await resolveStatusId(status_id, status);
+
+    await db.execute(
+      "CALL portal_spVehicleInsert(?,?,?,?,?,?,?,?,?)",
+      [
+        company_id,
+        branch_id || null,
+        registration,
+        manufacturer,
+        model,
+        date_registered || null,
+        maintenance_interval_months || null,
+        resolvedFuelTypeId,
+        resolvedStatusId,
+      ]
+    );
 
     res.status(201).json({ success: true, message: 'Vehicle added successfully' });
   } catch (error) {
@@ -82,19 +98,75 @@ export const createVehicle = async (req, res) => {
   }
 };
 
+export const getVehicles = async (req, res) => {
+  try {
+    const user = await resolveAccessScope(req.user.user_id);
+    const [rows] = await db.execute(
+      `SELECT v.id, v.registration, v.manufacturer, v.model, v.date_registered, s.status_name AS status
+       FROM vehicles v
+       LEFT JOIN lookup_vehiclestatus s ON s.status_id = v.status_id
+       WHERE (? IS NULL OR v.company_id = ?)
+       ORDER BY v.id DESC`,
+      [user.company_id || null, user.company_id || null]
+    );
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    console.error('GetAllVehicles error:', error);
+    res.status(500).json({ success: false, message: 'Failed to retrieve vehicles', details: error.message });
+  }
+};
+
 export const updateVehicle = async (req, res) => {
   try {
     const { id } = req.params;
+    const user = await resolveAccessScope(req.user.user_id);
 
-    const { registration, manufacturer, model, date_registered, maintenance_interval_months, fuel_type_id, status_id } = req.body;
-    await db.execute('CALL portal_spVehicleUpdate(?, ?, ?, ?, ?, ?, ?, ?)',
-      [id, registration, manufacturer, model, date_registered, maintenance_interval_months, fuel_type_id, status_id
+    let {
+      company_id,
+      branch_id,
+      registration,
+      manufacturer,
+      model,
+      date_registered,
+      maintenance_interval_months,
+      fuel_type_id,
+      fuel_type,
+      status_id,
+      status,
+    } = req.body;
 
+    if (user.role_name === "SuperAdmin" || user.role_name === "Admin") {
+      if (!company_id || !branch_id) {
+        return res.status(400).json({ success: false, message: "company_id and branch_id are required" });
+      }
+    } else {
+      company_id = user.company_id;
+      if (user.role_name === "BranchManager" || user.role_name === "Driver") {
+        branch_id = user.branch_id;
+      }
+    }
+
+    const resolvedFuelTypeId = await resolveFuelTypeId(fuel_type_id, fuel_type);
+    const resolvedStatusId = await resolveStatusId(status_id, status);
+
+    await db.execute(
+      "CALL portal_spVehicleUpdate(?,?,?,?,?,?,?,?,?,?)",
+      [
+        id,
+        company_id,
+        branch_id || null,
+        registration,
+        manufacturer,
+        model,
+        date_registered || null,
+        maintenance_interval_months || null,
+        resolvedFuelTypeId,
+        resolvedStatusId,
       ]
     );
+
     res.json({ success: true, message: 'Vehicle updated successfully' });
-  }
-  catch (error) {
+  } catch (error) {
     console.error('UpdateVehicle Error:', error);
     res.status(500).json({ success: false, message: 'Failed to update vehicle', details: error.message });
   }
@@ -104,7 +176,7 @@ export const updateVehicle = async (req, res) => {
 export const Deletevehicles = async (req, res) => {
   const { id } = req.params;
   try {
-    await db.execute('CALL portal_spVehicleDelete(?)', [id]);
+    await db.execute("CALL portal_spVehicleDelete(?)", [id]);
     res.json({ success: true, message: 'Vehicle deleted successfully' });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to delete vehicle', details: error });
@@ -118,8 +190,7 @@ export const deleteMultipleVehicles = async (req, res) => {
   }
 
   try {
-    const idString = ids.join(',');
-    await db.execute('CALL portal_spVehicleDeleteMultiple(?)', [idString]);
+    await db.execute("CALL portal_spVehicleDeleteMultiple(?)", [ids.join(",")]);
     res.json({ success: true, message: 'Vehicles deleted successfully' });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to delete vehicles', details: error });
@@ -142,44 +213,34 @@ export const getVehicleMainPageData = async (req, res) => {
       pageSize
     } = req.body;
 
-    const loggedInUserId = req.user.user_id;
-
     // ✅ SAFE DEFAULTS
     pageNumber = Number(pageNumber) > 0 ? Number(pageNumber) : 1;
     pageSize = Number(pageSize) > 0 && Number(pageSize) <= 100 ? Number(pageSize) : 10;
-
     const allowedSortColumns = ["registration", "manufacturer", "date_registered"];
     if (!allowedSortColumns.includes(sortColumn)) {
       sortColumn = "registration";
     }
-
     sortDirection = sortDirection === "DESC" ? "DESC" : "ASC";
-
-    const params = [
-      companyId || null,
-      branchId || null,
-      statusId || null,
-      startDate || null,
-      endDate || null,
-      sortColumn,
-      sortDirection,
-      pageNumber,
-      pageSize,
-      loggedInUserId
-    ];
 
     const [result] = await db.execute(
       "CALL portal_spVehicleMainPageData(?,?,?,?,?,?,?,?,?,?)",
-      params
+      [
+        companyId || null,
+        branchId || null,
+        statusId || null,
+        startDate || null,
+        endDate || null,
+        sortColumn,
+        sortDirection,
+        pageNumber,
+        pageSize,
+        req.user.user_id,
+      ]
     );
-
     const vehicles = result[0] || [];
     const statusList = result[1] || [];
-
-
-    const totalRecords = vehicles.length ? vehicles[0].totalRecords : 0;
-
-    const cleanedVehicles = vehicles.map(({ totalRecords, ...rest }) => rest);
+    const totalRecords = vehicles.length ? Number(vehicles[0].totalRecords || 0) : 0;
+    const cleanedVehicles = vehicles.map(({ totalRecords: _ignored, ...rest }) => rest);
 
     return res.status(200).json({
       success: true,
@@ -193,7 +254,6 @@ export const getVehicleMainPageData = async (req, res) => {
         statusList
       }
     });
-
   } catch (error) {
     console.error("Vehicle Controller Error:", error);
     return res.status(500).json({

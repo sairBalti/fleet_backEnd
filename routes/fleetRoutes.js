@@ -1,10 +1,14 @@
 import express from "express";
 const router = express.Router();
 import * as vehicleController from "../controllers/vehicleController.js";
+import * as aiVehicleController from "../controllers/aiVehicleController.js";
 import verifyToken from "../middleware/verifyToken.js";
+import upload from "../utils/multerConfig.js";
 
 router.use(verifyToken);
 
+router.post("/preview", aiVehicleController.previewAIVehicle);
+router.post("/ingest", upload.single("file"), aiVehicleController.handleAIVehicleIngest);
 router.post("/vehiclePaging", vehicleController.getVehicleMainPageData);
 router.post("/delete-multiple", vehicleController.deleteMultipleVehicles);
 router.get("/", vehicleController.getVehicles);

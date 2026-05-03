@@ -22,6 +22,9 @@ let fileData = null;
 // 1. Parse text command if exists
 if (message?.trim()) {
     commandData = await parseCompanyCommand(message);
+    if (commandData?.needsClarification) {
+        throw new AppError(commandData.clarificationQuestion || "Please clarify your command", 400, "NEEDS_CLARIFICATION");
+    }
 }
 
 // 2. Parse file if exists

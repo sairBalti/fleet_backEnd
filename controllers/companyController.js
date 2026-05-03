@@ -85,16 +85,11 @@ export const getBranchMainPageData = async (req, res, next) => {
         // =========================
 
         if (req.user.role === "SuperAdmin") {
-
-            if (!companyId) {
-                return next(new AppError("Company ID is required", 400));
-            }
-
-            companyIds = String(companyId);
+            companyIds = companyId ? String(companyId) : null;
             branchIds = null;
         }
 
-        else if (req.user.role === "CompanyAdmin") {
+        else if (req.user.role === "CompanyAdmin" || req.user.role === "CompanyManager") {
 
             companyIds = req.user.company_ids;
             branchIds = null;

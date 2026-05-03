@@ -16,6 +16,50 @@ export const checkCompanyExists = async (companyName, businessTypeId) => {
     return rows.length > 0;
 };
 
+const resolveCompanyByName = async (companyName) => {
+    const normalized = String(companyName || "").trim().toLowerCase();
+    if (!normalized) {
+        throw new AppError("Company name is required", 400, null, { field: "company_name" });
+    }
+
+    const [exactRows] = await db.execute(
+        `SELECT company_id, company_name
+         FROM companies
+         WHERE LOWER(company_name) = ?
+         LIMIT 2`,
+        [normalized]
+    );
+
+    if (exactRows.length === 1) {
+        return exactRows[0];
+    }
+
+    const [likeRows] = await db.execute(
+        `SELECT company_id, company_name
+         FROM companies
+         WHERE LOWER(company_name) LIKE CONCAT('%', ?, '%')
+         ORDER BY company_name
+         LIMIT 6`,
+        [normalized]
+    );
+
+    if (likeRows.length === 0) {
+        throw new AppError(`Company "${companyName}" not found`, 404, null, { field: "company_name" });
+    }
+
+    if (likeRows.length > 1) {
+        const suggestions = likeRows.map((row) => row.company_name).join(", ");
+        throw new AppError(
+            `Multiple companies matched "${companyName}". Please use a more specific name: ${suggestions}`,
+            409,
+            "AMBIGUOUS_COMPANY",
+            { field: "company_name" }
+        );
+    }
+
+    return likeRows[0];
+};
+
 export const insertCompany = async (data) => {
 
 
@@ -93,10 +137,12 @@ export const updateCompany = async (data) => {
         });
     }
 
-    await db.execute(
-        "UPDATE companies SET business_type_id = ? WHERE company_name = ?",
-        [businessTypeId, data.company_name]
-    );
+    const company = await resolveCompanyByName(data.company_name);
+
+    await db.execute("UPDATE companies SET business_type_id = ? WHERE company_id = ?", [
+        businessTypeId,
+        company.company_id
+    ]);
 
     return {
         success: true,
@@ -110,10 +156,12 @@ export const changeCompanyStatus = async (companyName, status) => {
         throw new AppError("Company name is required", 400);
     }
 
-    const [result] = await db.execute(
-        "UPDATE companies SET is_active = ? WHERE company_name = ?",
-        [status, companyName]
-    );
+    const company = await resolveCompanyByName(companyName);
+
+    const [result] = await db.execute("UPDATE companies SET is_active = ? WHERE company_id = ?", [
+        status,
+        company.company_id
+    ]);
 
     if (result.affectedRows === 0) {
         throw new AppError("Company not found", 404);

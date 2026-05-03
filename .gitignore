@@ -1,0 +1,32 @@
+ode_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+.env
+*.pem
+*.key
+
+# Logs
+logs
+*.log
+*.log.*
+pids
+*.pid
+*.seed
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Build
+dist/
+build/
+.tmp/
+
+# Database dumps
+*.sql
+*.sqlite
+*.db
+node_modules/
+.env
